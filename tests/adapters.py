@@ -13,6 +13,7 @@ from torch import Tensor
 
 from cs336_basics import layers
 from cs336_basics import bpe_trainer
+from cs336_basics import bpe_tokenizer
 
 
 
@@ -562,7 +563,8 @@ def get_tokenizer(
     Returns:
         A BPE tokenizer that uses the provided vocab, merges, and special tokens.
     """
-    raise NotImplementedError
+    tokenizer = bpe_tokenizer.Tokenizer(vocab, merges, special_tokens)
+    return tokenizer
 
 
 def run_train_bpe(
