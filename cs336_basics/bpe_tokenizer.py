@@ -10,11 +10,11 @@ import time
 from multiprocessing import Pool
 import multiprocessing
 
-NUM_PROCESSES = 1 #multiprocessing.cpu_count() - 1
-# NUM_PROCESSES = 2
+NUM_PROCESSES = multiprocessing.cpu_count() - 1
 
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 
+# Copied from the example
 def find_chunk_boundaries(
     file: BinaryIO, 
     desired_num_chunks: int, 
@@ -73,23 +73,6 @@ class BPETokenizerParams:
     vocab: dict[int, bytes]     # index -> bytes
     merges: list[tuple[bytes, bytes]]
 
-def train_bpe(string: str, num_merges: int) -> BPETokenizerParams:  # @inspect string, @inspect num_merges
-    indices = list(map(int, string.encode("utf-8")))  # @inspect indices
-    merges: dict[tuple[int, int], int] = {}  # index1, index2 => merged index
-    vocab: dict[int, bytes] = {x: bytes([x]) for x in range(256)}  # index -> bytes
-    for i in range(num_merges):
-        counts = defaultdict(int)
-        for index1, index2 in zip(indices, indices[1:]):  # For each adjacent pair
-            counts[(index1, index2)] += 1  # @inspect counts
-        pair = max(counts, key=counts.get)  # @inspect pair
-        index1, index2 = pair
-        new_index = 256 + i  # @inspect new_index
-        merges[pair] = new_index  # @inspect merges
-        vocab[new_index] = vocab[index1] + vocab[index2]  # @inspect vocab
-        indices = merge(indices, pair, new_index)  # @inspect indices
-    return BPETokenizerParams(vocab=vocab, merges=merges)
-
-
 class BPETrainer:
     def __init__(self, special_tokens):
         self.special_token = special_tokens[0]
@@ -103,7 +86,6 @@ class BPETrainer:
     def decode_pair(self, merge_pair):
         t1, t2 = merge_pair
         merged_bytes = t1 + t2
-        # print("actual text after merging: ", merged_bytes.decode("utf-8"))
         return merged_bytes
 
     def pretokenize_chunk(self, chunk: str) -> dict[tuple[bytes], int]:
@@ -114,9 +96,7 @@ class BPETrainer:
             for match in rex:
                 pre_token = match.group().encode("utf-8")
                 pre_tokens.append(tuple(bytes([b]) for b in pre_token))
-        # print(pre_tokens)
         counter_pre_tokens = Counter(pre_tokens)
-        # print(counter_pre_tokens)
         return counter_pre_tokens
     
     def process_chunk(self, args):
@@ -130,34 +110,25 @@ class BPETrainer:
     def update(self):
         max_count = max(self.counter_bp_fq.values())
         candidates = [pair for pair, count in self.counter_bp_fq.items() if count == max_count]
-        # print(self.counter_bp_fq.most_common(5))
         merge_pair = max(candidates)
         v = self.counter_bp_fq[merge_pair]
-        # print(merge_pair, v)
         self.counter_bp_fq.pop(merge_pair)
 
         # print(merge_pair)
         updated_pts = self.map_pair_pt[merge_pair]
-        # print([b''.join(k) for k in updated_pts])
         del self.map_pair_pt[merge_pair]
-        # assert len(updated_pts) > 1, "what!"
         for k in updated_pts:
             v = self.counter_pt[k]
             for pair in zip(k[:-1], k[1:]):
-                # print(f"{pair=}")
-                # pair = get_bytes_pair(pair)
-                # print(f"{pair=}")
                 self.counter_bp_fq.subtract({pair: v})
                 if self.counter_bp_fq[pair] == 0:
                     del self.counter_bp_fq[pair]
         
         token_idx = len(self.vocab)
         self.vocab[token_idx] = self.decode_pair(merge_pair)
-        # print(f"{self.decode_pair(merge_pair)=}")
 
         self.merges.append(merge_pair)
         merged_pair = self.vocab[token_idx]
-        # print(f"Added new token {token_idx}")
 
         for k in updated_pts:
             before_k = list(k)
@@ -171,8 +142,9 @@ class BPETrainer:
                 else:
                     after_k.append(k[i])
                     i += 1
+            if i == len(k) - 1:
+                after_k.append(k[i])
             after_k = tuple(after_k)
-            # print(f"{after_k=}")
 
             v = self.counter_pt[k]
             del self.counter_pt[k]
@@ -180,17 +152,14 @@ class BPETrainer:
             self.counter_pt[after_k] = v
             if len(after_k) == 1: continue
             for pair in zip(after_k[:-1], after_k[1:]):
-                # print(f"{pair=}")
                 self.counter_bp_fq.update({pair: v})
                 self.map_pair_pt[pair].add(after_k)
 
     def train_bpe(self, fname, vocab_size):
         boundaries = self.get_chunk_boundaries(fname)
-        # boundaries = [0, 1000]
 
         self.counter_pt = Counter()
 
-        # TODO this part has to do multiprocessing
         args_list = []
         for start, end in zip(boundaries[:-1], boundaries[1:]):
             args_list.append((fname, start, end))
@@ -208,13 +177,11 @@ class BPETrainer:
             i += 1
             if len(k) == 1: continue
             for pair in zip(k[:-1], k[1:]):
-                # print(pair)
                 self.counter_bp_fq.update({pair: v})
                 self.map_pair_pt[pair].add(k)
 
         total_updates = vocab_size - len(self.vocab)
         for _ in range(total_updates):
-            print("------xxxxxx------")
             self.update()
         
         return BPETokenizerParams(vocab=self.vocab, merges=self.merges)
@@ -224,7 +191,7 @@ class BPETrainer:
             boundaries = find_chunk_boundaries(
                 f, NUM_PROCESSES, "<|endoftext|>".encode("utf-8"))
 
-        print(boundaries)
+        print(f"chunk boundaries: {boundaries}")
         return boundaries
 
 
@@ -237,13 +204,10 @@ def run_train_bpe(
     bpe_trainer = BPETrainer(special_tokens=special_tokens)
     
     tokenizer_params = bpe_trainer.train_bpe(input_path, vocab_size)
-    # print(tokenizer_params.merges)
-    # print(tokenizer_params.vocab)
 
     return tokenizer_params.vocab, tokenizer_params.merges
 
 if __name__ == "__main__":
-    # input_path = "../tests/fixtures/corpus.en"
     input_path = "../data/TinyStoriesV2-GPT4-valid.txt"
 
     tic = time.time()
