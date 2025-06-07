@@ -11,7 +11,6 @@ from torch import Tensor
 
 
 
-from cs336_basics import layers
 from cs336_basics import bpe_trainer
 from cs336_basics import bpe_tokenizer
 
