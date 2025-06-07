@@ -9,27 +9,32 @@ class Tokenizer:
         self.vocab = vocab
         self.merges = merges
         self.special_tokens = special_tokens
-        if special_tokens is not None:
-            special_pattern = "|".join(re.escape(token) for token in special_tokens)
-            print(f"{special_pattern=}")
-            self.special_pattern = re.compile(f"({special_pattern})|{PAT}")
+        if self.special_tokens is not None:
+            self.special_tokens = sorted(self.special_tokens, key=lambda x: len(x), reverse=True)
+            self.special_pattern = "|".join(re.escape(token) for token in self.special_tokens)
         else:
-            self.special_pattern = re.compile(PAT)
+            self.special_pattern = None
 
         self.reverse_vocab = {}
         for k, v in self.vocab.items():
             self.reverse_vocab[v] = k
 
     # Copied and modified from bpe_trainer.py
-    def pretokenize_chunk(self, chunk: str) -> dict[tuple[bytes], int]:
-        rex = re.finditer(self.special_pattern, chunk)
+    def pretokenize_chunk(self, chunk: str) -> list[tuple[bytes]]:
         pre_tokens = []
-        for match in rex:
-            pre_token = match.group().encode("utf-8")
-            if self.special_tokens is not None and pre_token.decode("utf-8") in self.special_tokens:
-                pre_tokens.append(tuple([pre_token]))
+        if self.special_pattern is not None:
+            mini_chunks = re.split(f"({self.special_pattern})", chunk)
+        else:
+            mini_chunks = [chunk]
+        for mini_chunk in mini_chunks:
+            if self.special_tokens is not None and mini_chunk in self.special_tokens:
+                pre_tokens.append(tuple([mini_chunk.encode("utf-8")]))
             else:
-                pre_tokens.append(tuple(bytes([b]) for b in pre_token))
+                rex = re.finditer(PAT, mini_chunk)
+                
+                for match in rex:
+                    pre_token = match.group().encode("utf-8")
+                    pre_tokens.append(tuple(bytes([b]) for b in pre_token))
         return pre_tokens
 
     def from_files(self):
@@ -71,9 +76,9 @@ class Tokenizer:
         return pt
     
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
-        # TODO - wrong
         for chunk in iterable:
-            yield self.encode(chunk)
+            for token in self.encode(chunk):
+                yield token
     
     def decode(self, ids: list[int]) -> str:
         output_bytes = b''
