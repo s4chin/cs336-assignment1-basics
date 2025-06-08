@@ -72,7 +72,7 @@ class RMSNorm(nn.Module):
         x = x.to(torch.float32)
 
         rms = torch.sum(x**2, dim=-1, keepdim=True)
-        rms = torch.sqrt((1/self.d_model) * (rms + self.eps))
+        rms = torch.sqrt((1/self.d_model) * (rms) + self.eps)
 
         result = einsum(x / rms, self.weight, "... d_model, d_model -> ... d_model")
 
