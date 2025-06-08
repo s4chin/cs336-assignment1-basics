@@ -152,7 +152,15 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    mhsa = layers.MultiHeadSelfAttention(d_model, num_heads)
+    state_dict = {
+        "Wq.weight": q_proj_weight,
+        "Wk.weight": k_proj_weight,
+        "Wv.weight": v_proj_weight,
+        "Wo.weight": o_proj_weight,
+    }
+    mhsa.load_state_dict(state_dict)
+    return mhsa(in_features)
 
 
 def run_multihead_self_attention_with_rope(
@@ -192,7 +200,16 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    rope = layers.RoPE(theta, d_model//num_heads, max_seq_len)
+    mhsa = layers.MultiHeadSelfAttention(d_model, num_heads, rope=rope)
+    state_dict = {
+        "Wq.weight": q_proj_weight,
+        "Wk.weight": k_proj_weight,
+        "Wv.weight": v_proj_weight,
+        "Wo.weight": o_proj_weight,
+    }
+    mhsa.load_state_dict(state_dict)
+    return mhsa(in_features)
 
 
 def run_rope(
@@ -214,7 +231,8 @@ def run_rope(
     Returns:
         Float[Tensor, " ... sequence_length d_k"]: Tensor with RoPEd input.
     """
-    raise NotImplementedError
+    rope = layers.RoPE(theta, d_k, max_seq_len)
+    return rope(in_query_or_key, token_positions)
 
 
 def run_transformer_block(
@@ -287,7 +305,21 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    raise NotImplementedError
+    state_dict = {
+        "attn.Wq.weight": weights["attn.q_proj.weight"],
+        "attn.Wk.weight": weights["attn.k_proj.weight"],
+        "attn.Wv.weight": weights["attn.v_proj.weight"],
+        "attn.Wo.weight": weights["attn.output_proj.weight"],
+        "rmsnorm1.weight": weights["ln1.weight"],
+        "rmsnorm2.weight": weights["ln2.weight"],
+        "ff.w1.weight": weights["ffn.w1.weight"],
+        "ff.w2.weight": weights["ffn.w2.weight"],
+        "ff.w3.weight": weights["ffn.w3.weight"],
+    }
+    rope = layers.RoPE(theta, d_model//num_heads, max_seq_len)
+    transformer_block = layers.PreNormTransformerBlock(d_model, num_heads, d_ff, rope)
+    transformer_block.load_state_dict(state_dict)
+    return transformer_block(in_features)
 
 
 def run_transformer_lm(
@@ -393,7 +425,7 @@ def run_rmsnorm(
         RMSNorm of the `in_features`.
     """
     rmsnorm = layers.RMSNorm(d_model, eps)
-    rmsnorm.weights.data = weights
+    rmsnorm.weight.data = weights
     return rmsnorm(in_features)
 
 
