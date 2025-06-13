@@ -401,7 +401,23 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    rope = layers.RoPE(rope_theta, d_model // num_heads, context_length)
+    transformer_lm = layers.TransformerLM(vocab_size, context_length, d_model, num_heads, num_layers, d_ff, rope)
+
+    updated_state_dict = {}
+    for k, v in weights.items():
+        nk = k
+        if 'layers' in k:
+            nk = nk.replace('layers', 'blocks')
+        if 'attn' in k:
+            nk = nk.replace('q_proj', 'Wq').replace('k_proj', 'Wk').replace('v_proj', 'Wv').replace('output_proj', 'Wo')
+        elif 'ln1' in k or 'ln2' in k:
+            nk = nk.replace('ln1', 'rmsnorm1').replace('ln2', 'rmsnorm2')
+        elif 'ffn' in k:
+            nk = nk.replace('ffn', 'ff')
+        updated_state_dict[nk] = v
+    transformer_lm.load_state_dict(updated_state_dict)
+    return transformer_lm(in_indices)
 
 
 def run_rmsnorm(

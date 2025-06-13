@@ -183,3 +183,29 @@ class PreNormTransformerBlock(nn.Module):
         x = x + self.attn(self.rmsnorm1(x))
         x = x + self.ff(self.rmsnorm2(x))
         return x
+
+
+class TransformerLM(nn.Module):
+    def __init__(self, vocab_size, context_length, d_model, num_heads, num_layers, d_ff, rope=None, device=None, dtype=None):
+        super().__init__()
+        self.vocab_size = vocab_size
+        self.context_length = context_length
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.num_layers = num_layers
+        self.d_ff = d_ff
+        self.rope = rope
+
+        self.token_embeddings = Embedding(vocab_size, d_model, device=device, dtype=dtype)
+        self.blocks = nn.ModuleList([PreNormTransformerBlock(d_model=d_model, num_heads=num_heads, d_ff=d_ff, rope=rope, device=device, dtype=dtype)
+                       for i in range(num_layers)])
+        self.ln_final = RMSNorm(d_model, device=device, dtype=dtype)
+        self.lm_head = Linear(d_model, vocab_size)
+    
+    def forward(self, x):
+        x = self.token_embeddings(x)
+        for block in self.blocks:
+            x = block(x)
+        x = self.ln_final(x)
+        x = self.lm_head(x)
+        return x
